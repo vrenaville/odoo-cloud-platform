@@ -27,7 +27,7 @@ class IrAttachment(models.Model):
     _inherit = "ir.attachment"
 
     def _get_stores(self):
-        l = ['s3']
+        l = ['s3','db']
         l += super()._get_stores()
         return l
 
