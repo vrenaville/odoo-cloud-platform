@@ -2,6 +2,10 @@ language: python
 sudo: false
 cache: pip
 
+branches:
+  only:
+    - "/^[[:digit:]]{1,2}.[[:digit:]]$/"
+
 python:
   - "3.6"
 
@@ -17,8 +21,12 @@ addons:
 env:
   matrix:
   - LINT_CHECK="1"
-  - TESTS="1" ODOO_REPO="odoo/odoo"
-  - TESTS="1" ODOO_REPO="OCA/OCB"
+  - TESTS="1" ODOO_REPO="odoo/odoo" INCLUDE="cloud_platform_exoscale"
+  - TESTS="1" ODOO_REPO="OCA/OCB" INCLUDE="cloud_platform_exoscale"
+  - TESTS="1" ODOO_REPO="odoo/odoo" INCLUDE="cloud_platform_ovh"
+  - TESTS="1" ODOO_REPO="OCA/OCB" INCLUDE="cloud_platform_ovh"
+  - TESTS="1" ODOO_REPO="odoo/odoo" EXCLUDE="cloud_platform,cloud_platform_ovh,cloud_platform_exoscale"
+  - TESTS="1" ODOO_REPO="OCA/OCB" EXCLUDE="cloud_platform,cloud_platform_ovh,cloud_platform_exoscale"
   global:
   - VERSION="13.0" LINT_CHECK="0" TESTS="0"
 
@@ -26,8 +34,6 @@ install:
   - git clone --depth=1 https://github.com/OCA/maintainer-quality-tools.git ${HOME}/maintainer-quality-tools
   - export PATH=${HOME}/maintainer-quality-tools/travis:${PATH}
   - travis_install_nightly
-  - if [ "$LINT_CHECK" != "1" ] ; then ln -s ${HOME}/dependencies/server-env/server_environment_files_sample ${HOME}/dependencies/server-env/server_environment_files; fi
-  - printf '[options]\n\nrunning_env = dev' > ${HOME}/.openerp_serverrc
 
 script:
   - travis_run_tests

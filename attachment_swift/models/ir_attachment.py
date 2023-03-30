@@ -1,4 +1,4 @@
-# Copyright 2017-2018 Camptocamp SA
+# Copyright 2017-2019 Camptocamp SA
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl.html)
 
 
@@ -46,19 +46,21 @@ class SwiftSessionStore(object):
     def __init__(self):
         self._sessions = {}
 
-    def _get_key(self, auth_url, username, password, tenant_name):
-        return (auth_url, username, password, tenant_name)
+    def _get_key(self, auth_url, username, password, project_name):
+        return (auth_url, username, password, project_name)
 
     def get_session(self, auth_url=None, username=None, password=None,
-                    tenant_name=None):
-        key = self._get_key(auth_url, username, password, tenant_name)
+                    project_name=None):
+        key = self._get_key(auth_url, username, password, project_name)
         session = self._sessions.get(key)
         if not session:
-            auth = keystoneauth1.identity.v2.Password(
+            auth = keystoneauth1.identity.v3.Password(
                 username=username,
                 password=password,
-                tenant_name=tenant_name,
+                project_name=project_name,
                 auth_url=auth_url,
+                project_domain_id='default',
+                user_domain_id='default',
             )
             session = keystoneauth1.session.Session(
                 auth=auth,
@@ -76,7 +78,7 @@ class IrAttachment(models.Model):
 
     def _get_stores(self):
         l = ['swift']
-        l += super(IrAttachment, self)._get_stores()
+        l += super()._get_stores()
         return l
 
     @api.model
@@ -85,12 +87,18 @@ class IrAttachment(models.Model):
         host = os.environ.get('SWIFT_AUTH_URL')
         account = os.environ.get('SWIFT_ACCOUNT')
         password = os.environ.get('SWIFT_PASSWORD')
-        tenant_name = os.environ.get('SWIFT_TENANT_NAME')
+        project_name = os.environ.get('SWIFT_PROJECT_NAME')
+        if not project_name and os.environ.get('SWIFT_TENANT_NAME'):
+            project_name = os.environ['SWIFT_TENANT_NAME']
+            _logger.warning(
+                "SWIFT_TENANT_NAME is deprecated and "
+                "must be replaced by SWIFT_PROJECT_NAME"
+            )
         region = os.environ.get('SWIFT_REGION_NAME')
         os_options = {}
         if region:
             os_options['region_name'] = region
-        if not (host and account and password and tenant_name):
+        if not (host and account and password and project_name):
             raise exceptions.UserError(_(
                 "Problem connecting to Swift store, are the env variables "
                 "(SWIFT_AUTH_URL, SWIFT_ACCOUNT, SWIFT_PASSWORD, "
@@ -100,7 +108,7 @@ class IrAttachment(models.Model):
             session = swift_session_store.get_session(
                 username=account,
                 password=password,
-                tenant_name=tenant_name,
+                project_name=project_name,
                 auth_url=host,
             )
             conn = swiftclient.client.Connection(
@@ -133,11 +141,13 @@ class IrAttachment(models.Model):
                     'Error reading object from Swift object store')
             return read
         else:
-            return super(IrAttachment, self)._store_file_read(fname, bin_size)
+            return super()._store_file_read(fname, bin_size)
 
     def _store_file_write(self, key, bin_data):
         if self._storage() == 'swift':
             container = os.environ.get('SWIFT_WRITE_CONTAINER')
+            # replace {db} with the database name to handle multi-tenancy
+            container = container.format(db=self.env.cr.dbname)
             conn = self._get_swift_connection()
             conn.put_container(container)
             filename = 'swift://{}/{}'.format(container, key)
@@ -147,7 +157,7 @@ class IrAttachment(models.Model):
                 _logger.exception('Error writing to Swift object store')
                 raise exceptions.UserError(_('Error writing to Swift'))
         else:
-            _super = super(IrAttachment, self)
+            _super = super()
             filename = _super._store_file_write(key, bin_data)
         return filename
 
@@ -168,4 +178,4 @@ class IrAttachment(models.Model):
                     # we ignore the error, file will stay on the object
                     # storage but won't disrupt the process
         else:
-            super(IrAttachment, self)._file_delete_from_store(fname)
+            super()._file_delete_from_store(fname)

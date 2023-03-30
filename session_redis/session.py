@@ -6,9 +6,12 @@ import logging
 
 from werkzeug.contrib.sessions import SessionStore
 
+from . import json_encoding
+
 # this is equal to the duration of the session garbage collector in
 # odoo.http.session_gc()
 DEFAULT_SESSION_TIMEOUT = 60 * 60 * 24 * 7  # 7 days in seconds
+DEFAULT_SESSION_TIMEOUT_ANONYMOUS = 60 * 60 * 3  # 3 hours in seconds
 
 _logger = logging.getLogger(__name__)
 
@@ -17,13 +20,17 @@ class RedisSessionStore(SessionStore):
     """ SessionStore that saves session to redis """
 
     def __init__(self, redis, session_class=None,
-                 prefix='', expiration=None):
+                 prefix='', expiration=None, anon_expiration=None):
         super().__init__(session_class=session_class)
         self.redis = redis
         if expiration is None:
             self.expiration = DEFAULT_SESSION_TIMEOUT
         else:
             self.expiration = expiration
+        if anon_expiration is None:
+            self.anon_expiration = DEFAULT_SESSION_TIMEOUT_ANONYMOUS
+        else:
+            self.anon_expiration = anon_expiration
         self.prefix = 'session:'
         if prefix:
             self.prefix = '%s:%s:' % (
@@ -38,7 +45,10 @@ class RedisSessionStore(SessionStore):
 
         # allow to set a custom expiration for a session
         # such as a very short one for monitoring requests
-        expiration = session.expiration or self.expiration
+        if session.uid:
+            expiration = session.expiration or self.expiration
+        else:
+            expiration = session.expiration or self.anon_expiration
         if _logger.isEnabledFor(logging.DEBUG):
             if session.uid:
                 user_msg = "user '%s' (id: %s)" % (
@@ -49,7 +59,9 @@ class RedisSessionStore(SessionStore):
                           "expiration of %s seconds for %s",
                           key, expiration, user_msg)
 
-        data = json.dumps(dict(session)).encode('utf-8')
+        data = json.dumps(
+            dict(session), cls=json_encoding.SessionEncoder
+        ).encode('utf-8')
         if self.redis.set(key, data):
             return self.redis.expire(key, expiration)
 
@@ -71,7 +83,9 @@ class RedisSessionStore(SessionStore):
                           "returning a new one", key)
             return self.new()
         try:
-            data = json.loads(saved.decode('utf-8'))
+            data = json.loads(
+                saved.decode('utf-8'), cls=json_encoding.SessionDecoder
+            )
         except ValueError:
             _logger.debug("session for key '%s' has been asked but its json "
                           "content could not be read, it has been reset", key)
